@@ -1,3 +1,5 @@
+Forked from original repo: https://github.com/Tomas-M/xlunch.git
+
 # xlunch
 Graphical app launcher for X, using pure Xlib and Imlib2.
 
