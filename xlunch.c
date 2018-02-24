@@ -737,6 +737,24 @@ FILE * determine_input_source(){
     return fp;
 }
 
+
+FILE * determine_config_source(){
+    FILE * fp = NULL;
+    char * home = getenv("HOME");
+    if (home!=NULL) {
+        char * homeconf = NULL;
+        homeconf = concat(home,"/.config/xlunch/xlunchrc");
+        fprintf(stderr, "Trying to open user specific configuration file: %s\n", homeconf);
+        fp = fopen(homeconf, "rb");
+        free(homeconf);
+    }
+    if (fp == NULL) {
+        fprintf(stderr, "Trying to open system configuration file: /etc/xlunch/xlunchrc\n");
+        fp = fopen("/etc/xlunch/xlunchrc", "rb");
+    }
+    return fp;
+}
+
 int mouse_over_cell(node_t * cell, int mouse_x, int mouse_y)
 {
     if (cell->hidden) return 0;
@@ -1400,105 +1418,109 @@ void draw_text_with_shadow(int posx, int posy, char * text, color_t color) {
 void handle_option(int c, char *optarg);
 
 void parse_config(FILE *input) {
-    int readstatus;
-    int position = 0;
-    int size = 0;
-    int eol = 0;
-    int fileline = 1;
-    char *optarg = NULL;
-    char matching[(sizeof(long_options)/sizeof(struct option)) - 1];
-    char *entries_word = "entries";
-    int matching_entries = 1;
-    int matched = '?';
-    int comment = 0;
-    memset(matching, 1, sizeof(long_options)/sizeof(struct option) - 1);
+    if ( input != NULL ) {
+        int readstatus;
+        int position = 0;
+        int size = 0;
+        int eol = 0;
+        int fileline = 1;
+        char *optarg = NULL;
+        char matching[(sizeof(long_options)/sizeof(struct option)) - 1];
+        char *entries_word = "entries";
+        int matching_entries = 1;
+        int matched = '?';
+        int comment = 0;
+        memset(matching, 1, sizeof(long_options)/sizeof(struct option) - 1);
 
-    struct pollfd fds;
-    fds.fd = fileno(input);
-    fds.events = POLLIN;
-    node_t * current_entry;
-    while(poll(&fds, 1, 0)) {
-        char b;
-        readstatus = read(fds.fd, &b, 1);
-        if(readstatus <= 0){
-            break;
-        }
-        if(b == ':' || b == '\n') {
-            if (b == '\n') eol = 1;
-            b = '\0';
-        }
-        if(b == '#' && optarg == NULL && position == 0) comment = 1;
-        if(comment == 1 && eol != 1) continue;
-        if(b == ' ' && position == 0) continue;
-        if(optarg == NULL) {
-            for(int i = 0; i < sizeof(long_options)/sizeof(struct option) - 1; i++) {
-                if (long_options[i].name[position] != b){
-                    matching[i] = 0;
-                }
+        struct pollfd fds;
+        fds.fd = fileno(input);
+        fds.events = POLLIN;
+        node_t * current_entry;
+        while(poll(&fds, 1, 0)) {
+            char b;
+            readstatus = read(fds.fd, &b, 1);
+            if(readstatus <= 0){
+                break;
             }
-            if (entries_word[position] != b && eol != 1) {
-                matching_entries = 0;
+            if(b == ':' || b == '\n') {
+                if (b == '\n') eol = 1;
+                b = '\0';
             }
-            if(b == '\0') {
+            if(b == '#' && optarg == NULL && position == 0) comment = 1;
+            if(comment == 1 && eol != 1) continue;
+            if(b == ' ' && position == 0) continue;
+            if(optarg == NULL) {
                 for(int i = 0; i < sizeof(long_options)/sizeof(struct option) - 1; i++) {
-                    if (matching[i] == 1) {
-                        optarg = malloc(1);
-                        position = -1;
-                        matched = long_options[i].val;
+                    if (long_options[i].name[position] != b){
+                        matching[i] = 0;
                     }
                 }
-            }
-        } else {
-            optarg = realloc(optarg, ++size);
-            optarg[position] = b;
-        }
-        position++;
-        if(eol == 1) {
-            if(position != 1) {
-                if(matching_entries){
-                    input_source = input;
-                    break;
-                } else {
-                    if(matched == '?') {
-                        fprintf(stderr, "Got unknown option in config file on line %d\n", fileline);
-                    }
-                    handle_option(matched, optarg);
+                if (entries_word[position] != b && eol != 1) {
+                    matching_entries = 0;
                 }
+                if(b == '\0') {
+                    for(int i = 0; i < sizeof(long_options)/sizeof(struct option) - 1; i++) {
+                        if (matching[i] == 1) {
+                            optarg = malloc(1);
+                            position = -1;
+                            matched = long_options[i].val;
+                        }
+                    }
+                }
+            } else {
+                optarg = realloc(optarg, ++size);
+                optarg[position] = b;
             }
-            position = 0;
-            size = 0;
-            eol = 0;
-            comment = 0;
-            matching_entries = 1;
-            memset(matching, 1, sizeof(long_options)/sizeof(struct option) - 1);
-            if(optarg != NULL){
-                //free(optarg);
-                optarg = NULL;
-            }
-            matched = '?';
-            fileline++;
-        }
-    }
-    if(position > 1) {
-        if(matching_entries){
-            input_source = input;
-        } else {
-            if (matched == '?') {
-                for(int i = 0; i < sizeof(long_options)/sizeof(struct option) - 1; i++) {
-                    if (matching[i] == 1) {
-                        matched = long_options[i].val;
+            position++;
+            if(eol == 1) {
+                if(position != 1) {
+                    if(matching_entries){
+                        input_source = input;
                         break;
+                    } else {
+                        if(matched == '?') {
+                            fprintf(stderr, "Got unknown option in config file on line %d\n", fileline);
+                        }
+                        handle_option(matched, optarg);
                     }
                 }
+                position = 0;
+                size = 0;
+                eol = 0;
+                comment = 0;
+                matching_entries = 1;
+                memset(matching, 1, sizeof(long_options)/sizeof(struct option) - 1);
+                if(optarg != NULL){
+                    //free(optarg);
+                    optarg = NULL;
+                }
+                matched = '?';
+                fileline++;
             }
-            if(matched == '?') {
-                fprintf(stderr, "Got unknown option in config file on line %d\n", fileline);
-            }
-            handle_option(matched, optarg);
         }
+        if(position > 1) {
+            if(matching_entries){
+                input_source = input;
+            } else {
+                if (matched == '?') {
+                    for(int i = 0; i < sizeof(long_options)/sizeof(struct option) - 1; i++) {
+                        if (matching[i] == 1) {
+                            matched = long_options[i].val;
+                            break;
+                        }
+                    }
+                }
+                if(matched == '?') {
+                    fprintf(stderr, "Got unknown option in config file on line %d\n", fileline);
+                }
+                handle_option(matched, optarg);
+            }
+        }
+        if(input_source != input)
+            close(fds.fd);
+    } else {
+        fprintf(stderr, "There is no configuration file.\n");
     }
-    if(input_source != input)
-        close(fds.fd);
 }
 
 void handle_option(int c, char *optarg) {
@@ -1910,10 +1932,13 @@ void init(int argc, char **argv)
 {
 
     int c, option_index;
+
+    /* parse configuration file if exists - for default options*/
+    parse_config( determine_config_source() );
+
     while ((c = getopt_long(argc, argv, "vdr:ng:L:b:B:s:i:p:f:mc:x:y:w:h:oatGHI:T:P:WF:SqROMuXeCl:V:U:A:", long_options, &option_index)) != -1) {
         handle_option(c, optarg);
     }
-    //parse_config(fopen("/home/peter/.xlunchrc", "rb"));
 
     /* connect to X */
     disp = XOpenDisplay(NULL);
